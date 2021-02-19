@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import bpy
@@ -31,6 +32,8 @@ def select_source_target(*objs):
 
 
 def select(objs):
+    if not isinstance(objs, list):
+        objs = [objs]
     for o in objs:
         select_set(o, True)
 
@@ -181,9 +184,8 @@ def resize(obj, value, orient_type='GLOBAL'):
 
 
 def rotate(obj, value, pivot='MEDIAN_POINT'):
-    blwr_oth.set_pivot('MEDIAN_POINT')
+    blwr_oth.set_pivot(pivot)
     focus(obj)
-
     mat = mathutils.Matrix()
     for v, ax in zip(value, 'XYZ'):
         mat = blwr_oth.matmul(mathutils.Matrix.Rotation(v, 4, ax), mat)
@@ -362,3 +364,61 @@ def set_origin(obj, loc):
     blwr_oth.set_cursor_location(loc)
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
     blwr_oth.set_cursor_location(old_loc)
+
+
+def place_in_grid(objs, margin=1, nrows=5):
+    offset_x = 0
+    offset_y = 0
+    max_dim1 = 0
+    for i, o in enumerate(objs):
+        max_dim1 = max(max_dim1, o.dimensions[1])
+        o.location[0] += offset_x
+        o.location[1] += offset_y
+        offset_x += round(o.dimensions[0] + margin)
+        if (i + 1) % nrows == 0:
+            offset_y += round(max_dim1 + margin)
+            offset_x = 0
+            max_dim1 = 0
+
+
+def reparent(obj, new_parent=None, keep_transform=True):
+    if new_parent is None:
+        focus(obj)
+        bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM' if keep_transform else 'CLEAR')
+        return
+    select_source_target(obj, new_parent)
+    bpy.ops.object.parent_set(type='OBJECT', keep_transform=keep_transform)
+
+
+def edge_split(obj, split_angle=math.pi / 6):
+    use_modifier(obj, 'EDGE_SPLIT', split_angle=split_angle)
+
+
+def array(obj, count, offset):
+    use_modifier(obj, 'ARRAY',
+                 count=count,
+                 constant_offset_displace=offset,
+                 use_constant_offset=True,
+                 use_relative_offset=False)
+
+
+def assign_material(objs, material):
+    if not isinstance(objs, list):
+        objs = [objs]
+    for obj in objs:
+        focus(obj)
+        if not len(obj.material_slots):
+            bpy.ops.object.material_slot_add()
+        obj.material_slots[0].material = material
+
+
+def make_joined_duplicate(objs):
+    duplicates = [duplicate(o) for o in objs]
+    return join(*duplicates)
+
+
+def remove_material_slot(obj, idx):
+    focus(obj)
+    for x in bpy.context.object.material_slots:
+        bpy.context.object.active_material_index = idx
+        bpy.ops.object.material_slot_remove()

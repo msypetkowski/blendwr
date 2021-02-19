@@ -4,6 +4,7 @@ from itertools import product
 
 import bmesh
 import bpy
+import mathutils
 import numpy as np
 
 from . import object as blwr_obj
@@ -77,22 +78,26 @@ class MeshEditor:
     def deselect_all(self):
         bpy.ops.mesh.select_all(action='DESELECT')
 
-    def select_verts(self, indices):
+    def select(self, elements, select=True):
+        for e in elements:
+            e.select = select
+
+    def select_verts(self, indices, select=True):
         for vi in indices:
-            self.bm.verts[vi].select = True
+            self.bm.verts[vi].select = select
 
-    def select_edges(self, idx):
-        for i in idx:
-            self.bm.edges[i].select = True
+    def select_edges(self, indices, select=True):
+        for i in indices:
+            self.bm.edges[i].select = select
 
-    def select_faces(self, indices=None, lambd=None):
+    def select_faces(self, indices=None, select=True, lambd=None):
         if indices is not None:
             for i in indices:
-                self.bm.faces[i].select = True
+                self.bm.faces[i].select = select
         if lambd is not None:
             for f in self.bm.faces:
                 if lambd(f):
-                    f.select = True
+                    f.select = select
 
     def update(self):
         if hasattr(self, 'bm'):
@@ -492,31 +497,6 @@ class MeshEditor:
         if self.bvh is None:
             self.bvh = BVHTree.FromBMesh(self.bm, epsilon=0.0001)
         return self.bvh
-
-    def are_inside(self, points):
-        """
-        From https://blender.stackexchange.com/questions/31693/how-to-find-if-a-point-is-inside-a-mesh
-        input:
-            points
-            - a list of vectors (can also be tuples/lists)
-        returns:
-            a list
-            - a mask lists with True if the point is inside the bmesh, False otherwise
-        """
-        from mathutils import Vector
-
-        rpoints = []
-        addp = rpoints.append
-        bvh = self.get_bvh()
-
-        # return points on polygons
-        for point in points:
-            fco, normal, _, _ = bvh.find_nearest(point)
-            p2 = fco - Vector(point)
-            v = p2.dot(normal)
-            addp(not v < 0.0)  # addp(v >= 0.0) ?
-
-        return rpoints
 
     def looptools_space(self):
         bpy.ops.mesh.looptools_space(influence=100,
