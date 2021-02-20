@@ -92,7 +92,7 @@ but they all heavily rely on this repository.
 
 ![](https://cdnb.artstation.com/p/assets/images/images/032/328/945/4k/michal-sypetkowski-240.jpg?1606140332)
 
-![](https://cdna.artstation.com/p/assets/images/images/030/259/580/4k/michal-sypetkowski-grid0-large.jpg?1600087075)
+![](https://cdnb.artstation.com/p/assets/images/images/030/259/635/4k/michal-sypetkowski-8-large-0.jpg?1600087186)
 
 ![](https://cdnb.artstation.com/p/assets/images/images/024/057/157/4k/michal-sypetkowski-dung12.jpg?1581192379)
 
