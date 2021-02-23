@@ -59,14 +59,10 @@ def set_cursor_location(loc):
 
 def loc_rot_scale_to_matrix(loc, rot, scale):
     loc = mathutils.Matrix.Translation(loc)
-    # rot = [mathutils.Matrix.Rotation(rot[i], 4, axis) for i, axis in enumerate('XYZ')]
-    # rot = reduce(matmul, rot[::-1])
     rot = mathutils.Euler(rot, 'XYZ').to_matrix().to_4x4()
     scale = [mathutils.Matrix.Scale(scale[i], 4, axis) for i, axis in enumerate([(1, 0, 0), (0, 1, 0), (0, 0, 1)])]
     scale = reduce(matmul, scale)
-    # return list(reduce(matmul, [rot, loc]))
     return reduce(matmul, [loc, rot, scale])
-    # return list(reduce(matmul, [scale, rot, loc]))
 
 
 def _matmul(m1, m2):

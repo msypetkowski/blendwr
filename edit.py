@@ -4,7 +4,6 @@ from itertools import product
 
 import bmesh
 import bpy
-import mathutils
 import numpy as np
 
 from . import object as blwr_obj
@@ -114,12 +113,6 @@ class MeshEditor:
     def extrude(self, value, select_old=False):
         """ TODO: think of a method to avoid calling self.update every time
         """
-        # self.update()
-        # bmesh.update_edit_mesh(self.mesh)
-
-        # print('-----------------')
-        # print(len(self.bm.verts), len(self.bm.edges), len(self.bm.faces))
-
         old_selection_mode = self.get_selection_mode()
         self.set_selection_mode(True, True, True)
 
@@ -129,22 +122,12 @@ class MeshEditor:
 
         bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={
             "value": value, "orient_type": 'GLOBAL'})
-        # self.deselect_all()
-
-        # extruded = bmesh.ops.extrude_face_region(self.bm, geom=selected)
-        # for f in extruded['geom']:
-        #     f.select = True
-
-        # translate_verts = [v for v in extruded['geom'] if isinstance(v, bmesh.types.BMVert)]
-        # bmesh.ops.translate(self.bm, vec=value, verts=translate_verts)
 
         if select_old:
             for f in selected:
                 f.select = True
 
         self.set_selection_mode(*old_selection_mode)
-
-        # print(len(self.bm.verts), len(self.bm.edges), len(self.bm.faces))
         self.update()
 
     def extrude_along_normals(self, value, select_old=False):
@@ -180,7 +163,6 @@ class MeshEditor:
     def add_vert(self, loc):
         index = self.bm.verts.new(loc).index
         index = len(self.bm.verts) - 1  # TODO: is it correct?
-        # assert index != -1
         self.bm.verts.ensure_lookup_table()
         return index
 
@@ -244,11 +226,6 @@ class MeshEditor:
 
     def set_pivot_individual(self):
         # TODO: doesn't work when running blender with startup script (--python)
-        # scr = bpy.context.window.screen
-        # # v3d = [area for area in scr.areas if area.type == 'VIEW_3D'][0]
-        # # v3d.spaces[0].pivot_point = 'INDIVIDUAL_ORIGINS'
-        # for scene in bpy.data.scenes:
-        #     scene.tool_settings.transform_pivot_point = 'INDIVIDUAL_ORIGINS'
         bpy.context.scene.tool_settings.transform_pivot_point = 'INDIVIDUAL_ORIGINS'
 
     def bevel_edges(self, value, offset_type='OFFSET'):
@@ -340,15 +317,12 @@ class MeshEditor:
         for z, y, x in product([0, dims[2]], [0, dims[1]], [0, dims[0]]):
             verts.append(self.bm.verts.new((x, y, z)))
 
-        faces = []
-        faces.append(self.bm.faces.new((verts[1], verts[0], verts[2], verts[3])))
-        faces.append(self.bm.faces.new((verts[4], verts[5], verts[7], verts[6])))
-
-        faces.append(self.bm.faces.new((verts[2], verts[0], verts[4], verts[6])))
-        faces.append(self.bm.faces.new((verts[1], verts[3], verts[7], verts[5])))
-
-        faces.append(self.bm.faces.new((verts[4], verts[0], verts[1], verts[5])))
-        faces.append(self.bm.faces.new((verts[2], verts[6], verts[7], verts[3])))
+        faces = [self.bm.faces.new((verts[1], verts[0], verts[2], verts[3])),
+                 self.bm.faces.new((verts[4], verts[5], verts[7], verts[6])),
+                 self.bm.faces.new((verts[2], verts[0], verts[4], verts[6])),
+                 self.bm.faces.new((verts[1], verts[3], verts[7], verts[5])),
+                 self.bm.faces.new((verts[4], verts[0], verts[1], verts[5])),
+                 self.bm.faces.new((verts[2], verts[6], verts[7], verts[3]))]
 
         for v in verts:
             v.select = True
@@ -483,8 +457,6 @@ class MeshEditor:
         old_objs = blwr_obj.get_selected()
         bpy.ops.mesh.separate(type='SELECTED')
         selected = blwr_obj.get_selected()
-        # assert len(selected) == 2
-        # selected = [s for s in selected if s is not self.obj]
         selected = [s for s in selected if s not in old_objs]
         assert len(selected) == 1
         return selected[0]
@@ -589,7 +561,6 @@ class MeshEditor:
 
     def shortest_path_select(self):
         bpy.ops.mesh.shortest_path_select()
-        # return bmesh.ops.shortest_path(self.bm, self.bm.verts[v1], self.bm.verts[v2])
 
     def update_edit_mesh(self):
         bmesh.update_edit_mesh(self.obj.data)

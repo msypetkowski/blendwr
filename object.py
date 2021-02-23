@@ -10,6 +10,21 @@ from . import edit as blwr_edit
 from . import other as blwr_oth
 
 
+def multi_object(fun):
+    """
+    Allow passing list of objects to decorated function.
+    Applies function for each object in list and returns list of results.
+    """
+
+    def optional_list(*args, **kwargs):
+        objs, *args = args
+        if isinstance(objs, list):
+            return [fun(obj, *args, **kwargs) for obj in objs]
+        return fun(objs, *args, **kwargs)
+
+    return optional_list
+
+
 def get_selected():
     return [o for o in bpy.data.objects if select_get(o)]
 
@@ -17,7 +32,7 @@ def get_selected():
 def get_single_selected():
     objects = get_selected()
     if len(objects) != 1:
-        raise IndexError("Exactly onle object should be selected.")
+        raise IndexError("Exactly one object should be selected.")
     return objects[0]
 
 
@@ -31,11 +46,9 @@ def select_source_target(*objs):
     blwr_oth.scene_update()
 
 
-def select(objs):
-    if not isinstance(objs, list):
-        objs = [objs]
-    for o in objs:
-        select_set(o, True)
+@multi_object
+def select(obj):
+    select_set(obj, True)
 
 
 def focus(obj, update=False):
@@ -48,18 +61,16 @@ def focus(obj, update=False):
         blwr_oth.scene_update()
 
 
+@multi_object
 def remove(obj):
-    if isinstance(obj, list):
-        for o in obj:
-            bpy.data.objects.remove(o, do_unlink=True)
-    else:
-        bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.data.objects.remove(obj, do_unlink=True)
 
 
 def get_child_objects(obj):
     return [o for o in bpy.data.objects if o.parent == obj]
 
 
+@multi_object
 def apply_modifier(obj, modifier):
     focus(obj)
     if blwr_oth.check_blender_version_ge('2.90'):
@@ -68,6 +79,7 @@ def apply_modifier(obj, modifier):
         bpy.ops.object.modifier_apply(apply_as='DATA', modifier=modifier.name)
 
 
+@multi_object
 def use_modifier(obj, mod_type, apply=True, use_as_first=False, **kwargs):
     name = 'temp_modifier' if apply else mod_type.lower()
     modifier = obj.modifiers.new(name=name, type=mod_type)
@@ -92,6 +104,7 @@ def use_modifier(obj, mod_type, apply=True, use_as_first=False, **kwargs):
         return modifier
 
 
+@multi_object
 def select_set(obj, val):
     if blwr_oth.check_blender_version_ge('2.80'):
         obj.select_set(val)
@@ -99,6 +112,7 @@ def select_set(obj, val):
         obj.select = val
 
 
+@multi_object
 def select_get(obj):
     if blwr_oth.check_blender_version_ge('2.80'):
         return obj.select_get()
@@ -141,11 +155,12 @@ def create_text_object(name='EmptyTextObject', text=""):
 
 
 def create_sphere(radius=1, rings=16, segments=32, location=(0, 0, 0)):
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=1, ring_count=rings, segments=segments,
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=radius, ring_count=rings, segments=segments,
                                          align='WORLD', location=location, scale=(1, 1, 1))
     return get_single_selected()
 
 
+@multi_object
 def add_to_scene(obj):
     if blwr_oth.check_blender_version_ge('2.80'):
         bpy.context.collection.objects.link(obj)
@@ -153,6 +168,7 @@ def add_to_scene(obj):
         bpy.context.scene.objects.link(obj)
 
 
+@multi_object
 def duplicate(obj, reference=False, name='Object'):
     """ Returns newly created object
     """
@@ -167,22 +183,26 @@ def duplicate(obj, reference=False, name='Object'):
     return new_obj
 
 
+@multi_object
 def apply_transform(obj):
     focus(obj)
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     return obj
 
 
+@multi_object
 def translate(obj, value):
     focus(obj)
     bpy.ops.transform.translate(value=value, orient_type='GLOBAL')
 
 
+@multi_object
 def resize(obj, value, orient_type='GLOBAL'):
     focus(obj)
     bpy.ops.transform.resize(value=value, orient_type=orient_type)
 
 
+@multi_object
 def rotate(obj, value, pivot='MEDIAN_POINT'):
     blwr_oth.set_pivot(pivot)
     focus(obj)
@@ -196,6 +216,7 @@ def deselect_all():
     bpy.ops.object.select_all(action='DESELECT')
 
 
+@multi_object
 def break_to_components(obj):
     ret = []
     with blwr_edit.EditMesh(obj) as editor:
@@ -210,7 +231,8 @@ def break_to_components(obj):
     return ret
 
 
-def boolean(obj, other_obj, operation='DIFFERENCE', use_as_first=True, break_obj=False):
+@multi_object
+def boolean(obj, other_obj, operation='DIFFERENCE', break_obj=False, **kwargs):
     """
     :param break_obj: apply boolean separately to each connected component of obj.
     """
@@ -218,7 +240,7 @@ def boolean(obj, other_obj, operation='DIFFERENCE', use_as_first=True, break_obj
         use_modifier(obj, 'BOOLEAN',
                      operation=operation,
                      object=other_obj,
-                     use_as_first=use_as_first)
+                     **kwargs)
         return obj
 
     result = []
@@ -226,7 +248,7 @@ def boolean(obj, other_obj, operation='DIFFERENCE', use_as_first=True, break_obj
         use_modifier(obj, 'BOOLEAN',
                      operation=operation,
                      object=other_obj,
-                     use_as_first=use_as_first)
+                     **kwargs)
         result.append(obj)
 
     return join(*result)
@@ -253,33 +275,41 @@ def join(*objects, boolean_union=False):
     return last
 
 
-def mirror(obj, apply=True):
-    return use_modifier(obj, 'MIRROR', apply=apply)
+@multi_object
+def mirror(obj, **kwargs):
+    return use_modifier(obj, 'MIRROR', **kwargs)
 
 
-def bevel(obj, offset=0.02, segments=1, apply=True, clamp_overlap=False):
+@multi_object
+def bevel(obj, offset=0.02, segments=1, clamp_overlap=False, **kwargs):
     return use_modifier(obj, 'BEVEL', width=offset, segments=segments,
-                        use_clamp_overlap=clamp_overlap, apply=apply)
+                        use_clamp_overlap=clamp_overlap, **kwargs)
 
 
-def shrinkwrap(obj, target, vertex_group=None, wrap_mode='ON_SURFACE', offset=0, apply=True):
-    kwargs = dict()
-    kwargs['target'] = target
+@multi_object
+def shrinkwrap(obj, target, vertex_group=None, wrap_mode='ON_SURFACE', offset=0, **kwargs):
     if vertex_group:
         kwargs['vertex_group'] = vertex_group
-    use_modifier(obj, 'SHRINKWRAP', **kwargs, wrap_mode=wrap_mode, apply=apply, offset=offset)
+    use_modifier(obj, 'SHRINKWRAP', wrap_mode=wrap_mode, offset=offset, target=target, **kwargs)
 
 
+@multi_object
 def bounding_box(obj):
     return [[f([obj.bound_box[j][i] for j in range(8)]) for f in [min, max]] for i in range(3)]
 
 
+@multi_object
 def bounding_box_center(obj):
     bbox = bounding_box(obj)
     return np.mean(bbox, axis=1)
 
 
 def get_image_as_plane_obj(img, path):
+    """
+    :type path: Path
+    :type img: np.ndarray
+    :return: object with material using image texture
+    """
     Path(path).parent.mkdir(exist_ok=True, parents=True)
     if len(img.shape) == 3:
         cv2.imwrite(str(path), img[..., ::-1])
@@ -304,11 +334,13 @@ def get_image_as_plane_obj(img, path):
     return plane_obj
 
 
+@multi_object
 def hide(obj, hide=True):
     obj.hide_set(hide)
 
 
-def subdivide(obj, times=1, apply=True):
+@multi_object
+def subdivide(obj, times=1, **kwargs):
     if not times:
         return
     kwargs = dict()
@@ -318,20 +350,23 @@ def subdivide(obj, times=1, apply=True):
         kwargs['use_subsurf_uv'] = False
     kwargs['levels'] = times
     kwargs['render_levels'] = times
-    use_modifier(obj, 'SUBSURF', **kwargs, apply=apply)
+    use_modifier(obj, 'SUBSURF', **kwargs)
 
 
+@multi_object
 def symmetrize(obj):
     with blwr_edit.EditMesh(obj) as editor:
         editor.select_all()
         editor.symmetrize()
 
 
+@multi_object
 def origin_to_geometry(obj):
     focus(obj)
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='MEDIAN')
 
 
+@multi_object
 def flip_normals(obj):
     focus(obj)
     blwr_oth.set_edit_mode()
@@ -340,25 +375,29 @@ def flip_normals(obj):
     blwr_oth.set_object_mode()
 
 
-def solidify(obj, thickness, offset=0.0, use_rim_only=False, vgroup_name='', apply=True, **kwargs):
+@multi_object
+def solidify(obj, thickness, offset=0.0, use_rim_only=False, vgroup_name='', **kwargs):
     use_modifier(obj, 'SOLIDIFY',
                  thickness=thickness,
                  offset=offset,
                  use_rim_only=use_rim_only,
                  vertex_group=vgroup_name,
-                 apply=apply, **kwargs)
+                 **kwargs)
 
 
+@multi_object
 def shade_smooth(obj):
     focus(obj)
     bpy.ops.object.shade_smooth()
 
 
+@multi_object
 def shade_flat(obj):
     focus(obj)
     bpy.ops.object.shade_flat()
 
 
+@multi_object
 def set_origin(obj, loc):
     old_loc = blwr_oth.get_cursor_location()
     blwr_oth.set_cursor_location(loc)
@@ -381,6 +420,7 @@ def place_in_grid(objs, margin=1, nrows=5):
             max_dim1 = 0
 
 
+@multi_object
 def reparent(obj, new_parent=None, keep_transform=True):
     if new_parent is None:
         focus(obj)
@@ -390,26 +430,27 @@ def reparent(obj, new_parent=None, keep_transform=True):
     bpy.ops.object.parent_set(type='OBJECT', keep_transform=keep_transform)
 
 
-def edge_split(obj, split_angle=math.pi / 6):
-    use_modifier(obj, 'EDGE_SPLIT', split_angle=split_angle)
+@multi_object
+def edge_split(obj, split_angle=math.pi / 6, **kwargs):
+    use_modifier(obj, 'EDGE_SPLIT', split_angle=split_angle, **kwargs)
 
 
-def array(obj, count, offset):
+@multi_object
+def array(obj, count, offset, **kwargs):
     use_modifier(obj, 'ARRAY',
                  count=count,
                  constant_offset_displace=offset,
                  use_constant_offset=True,
-                 use_relative_offset=False)
+                 use_relative_offset=False,
+                 **kwargs)
 
 
-def assign_material(objs, material):
-    if not isinstance(objs, list):
-        objs = [objs]
-    for obj in objs:
-        focus(obj)
-        if not len(obj.material_slots):
-            bpy.ops.object.material_slot_add()
-        obj.material_slots[0].material = material
+@multi_object
+def assign_material(obj, material):
+    focus(obj)
+    if not len(obj.material_slots):
+        bpy.ops.object.material_slot_add()
+    obj.material_slots[0].material = material
 
 
 def make_joined_duplicate(objs):
@@ -417,6 +458,7 @@ def make_joined_duplicate(objs):
     return join(*duplicates)
 
 
+@multi_object
 def remove_material_slot(obj, idx):
     focus(obj)
     for x in bpy.context.object.material_slots:
