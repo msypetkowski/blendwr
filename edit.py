@@ -1,16 +1,16 @@
-import math
-import queue
-from itertools import product
-
 import bmesh
 import bpy
+import math
 import numpy as np
+import queue
+from itertools import product
 
 from . import object as blwr_obj
 from . import other as blwr_oth
 
 
 def get_connected_components(bm, vert_indices):
+    """ Returns list of lists (components) of vertices. """
     vset = set(vert_indices)
     colors = [-1 for v in range(len(bm.verts))]
 
@@ -36,11 +36,11 @@ def get_connected_components(bm, vert_indices):
             bfs(v, cur_color)
             cur_color += 1
 
-    ret = [[] for _ in range(cur_color)]
+    components = [[] for _ in range(cur_color)]
     for vi in vert_indices:
         assert colors[vi] >= 0
-        ret[colors[vi]].append(vi)
-    return ret
+        components[colors[vi]].append(vi)
+    return components
 
 
 class EditMesh(object):
@@ -98,12 +98,13 @@ class MeshEditor:
                 if lambd(f):
                     f.select = select
 
-    def update(self):
+    def update(self, full=True):
         if hasattr(self, 'bm'):
             self.select_flush()
-        blwr_oth.set_object_mode()
-        blwr_oth.set_edit_mode()
-        self.bm = bmesh.from_edit_mesh(self.mesh)
+        if full:
+            blwr_oth.set_object_mode()
+            blwr_oth.set_edit_mode()
+            self.bm = bmesh.from_edit_mesh(self.mesh)
         self.bm.verts.ensure_lookup_table()
         self.bm.edges.ensure_lookup_table()
         self.bm.faces.ensure_lookup_table()
@@ -218,8 +219,8 @@ class MeshEditor:
         bpy.ops.transform.resize(**kwargs)
 
     def rotate(self, value):
-        for v, axis in zip(value, 'XYZ'):
-            bpy.ops.transform.rotate(value=v, orient_axis=axis, orient_type='GLOBAL')
+        mat = blwr_oth.loc_rot_scale_to_matrix((0, 0, 0), value, (1, 1, 1))
+        bmesh.ops.rotate(self.bm, verts=self.get_selected_verts(indices=False), matrix=mat)
 
     def set_pivot_median(self):
         bpy.context.scene.tool_settings.transform_pivot_point = 'MEDIAN_POINT'
@@ -389,7 +390,7 @@ class MeshEditor:
     def deselect_vgroup(self, name):
         self.select_vgroup(name, select=False)
 
-    def add_vertex_group_from_selection(self, name, replace=False):
+    def add_vertex_group_from_selection(self, name, weight=1.0, replace=False):
         if replace and name in self.obj.vertex_groups:
             self.remove_vgroup(name)
         vgroups = bpy.context.object.vertex_groups
@@ -397,7 +398,20 @@ class MeshEditor:
         if name not in obj.vertex_groups:
             obj.vertex_groups.new(name=name)
         vgroups.active_index = vgroups[name].index
+        bpy.context.scene.tool_settings.vertex_group_weight = weight
         bpy.ops.object.vertex_group_assign()
+
+    def remove_selection_from_vgroup(self, name):
+        vgroups = bpy.context.object.vertex_groups
+        vgroups.active_index = vgroups[name].index
+        bpy.ops.object.vertex_group_remove_from()
+
+    def smooth_vgroup(self, name, factor=0.5, repeat=1, expand=0):
+        vgroups = bpy.context.object.vertex_groups
+        vgroups.active_index = vgroups[name].index
+        blwr_oth.set_weight_paint_mode()
+        bpy.ops.object.vertex_group_smooth(group_select_mode='ACTIVE', factor=factor, repeat=repeat, expand=expand)
+        blwr_oth.set_edit_mode()
 
     def select_boundary_loop(self):
         bpy.ops.mesh.region_to_loop()
@@ -431,6 +445,9 @@ class MeshEditor:
 
     def select_sharp_edges(self, angle):
         bpy.ops.mesh.edges_select_sharp(sharpness=angle)
+
+    def crease_selected_edges(self, amount):
+        bpy.ops.transform.edge_crease(value=amount)
 
     def assign_material_slot(self, slot_index):
         for _ in range(max(slot_index + 1 - len(self.obj.material_slots), 0)):
@@ -477,9 +494,7 @@ class MeshEditor:
                                      lock_x=False, lock_y=False, lock_z=False)
 
     def subdivide(self, number_cuts=1):
-        if number_cuts == 0:
-            return
-        bpy.ops.mesh.subdivide(number_cuts=number_cuts)
+        bmesh.ops.subdivide_edges(self.bm, edges=self.bm.edges, cuts=number_cuts, use_grid_fill=True)
         self.update()
 
     def bridge_edge_loops(self, cuts=10, profile_factor=0, smoothness=1):
@@ -585,3 +600,57 @@ class MeshEditor:
 
     def get_selection_center(self):
         return np.mean(np.array([v.co for v in self.bm.verts if v.select]), axis=0)
+
+    def uv_unwrap(self, method='ANGLE_BASED', margin=0, **kwargs):
+        bpy.ops.uv.unwrap(method=method, margin=margin, **kwargs)
+
+    def uv_minimize_stretch(self, iterations=100):
+        bpy.ops.uv.minimize_stretch(iterations=iterations)
+
+
+class BezierPoint:
+
+    def __init__(self, co=(0, 0, 0), handle_left=None, handle_left_type='FREE',
+                 handle_right=None, handle_right_type='FREE', radius=0):
+        self.co = co
+        if handle_left is None:
+            handle_left = co
+        if handle_right is None:
+            handle_right = co
+        self.handle_left = handle_left
+        self.handle_left_type = handle_left_type
+        self.handle_right = handle_right
+        self.handle_right_type = handle_right_type
+        self.radius = radius
+
+    def apply(self, blender_bezier_point):
+        for attr in ('co', 'handle_left', 'handle_left_type', 'handle_right', 'handle_right_type', 'radius'):
+            setattr(blender_bezier_point, attr, (getattr(self, attr)))
+
+
+class EditCurve:
+    def __init__(self, obj):
+        self.obj = obj
+
+    def __enter__(self):
+        blwr_obj.focus(self.obj, update=True)
+        ret = CurveEditor(self.obj)
+        # TODO: consider editing curves in edit mode by default
+        # blwr_oth.set_edit_mode()
+        return ret
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
+class CurveEditor:
+    """ This is an initial version, there will be blender curve operators wrapped in the future """
+
+    def __init__(self, obj):
+        self.obj = obj
+
+    def add_bezier_spline(self, points):
+        spline = self.obj.data.splines.new('BEZIER')
+        spline.bezier_points.add(len(points) - 1)
+        for p, bp in zip(points, spline.bezier_points):
+            p.apply(bp)

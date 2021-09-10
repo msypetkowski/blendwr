@@ -1,12 +1,15 @@
+import bpy
+import mathutils
 import time
 from collections import defaultdict
 from functools import reduce
-
-import bpy
-import mathutils
+from pathlib import Path
 
 
 class TimerScope:
+    """ Profiling is an inseparable part of developing software using blender API.
+    This is just a simple util. This library may contain more complex utils in the future. """
+
     def __init__(self, name, times):
         self.name = name
         self.times = times
@@ -57,7 +60,7 @@ def set_cursor_location(loc):
         bpy.context.scene.cursor_location = loc
 
 
-def loc_rot_scale_to_matrix(loc, rot, scale):
+def loc_rot_scale_to_matrix(loc=(0, 0, 0), rot=(0, 0, 0), scale=(1, 1, 1)):
     loc = mathutils.Matrix.Translation(loc)
     rot = mathutils.Euler(rot, 'XYZ').to_matrix().to_4x4()
     scale = [mathutils.Matrix.Scale(scale[i], 4, axis) for i, axis in enumerate([(1, 0, 0), (0, 1, 0), (0, 0, 1)])]
@@ -80,10 +83,14 @@ def matmul(*args):
 
 
 class no_logging:
+    """ Some blender operators output variety of annoying logs,
+    use this context manager to mute them """
+
     def __enter__(self):
-        import os, sys
+        import os, sys, tempfile
         # redirect output to log file
-        logfile = 'blender.log'
+        self.temp_dir = tempfile.TemporaryDirectory()
+        logfile = self.temp_dir.name + '/blender.log'
         open(logfile, 'a').close()
         old = os.dup(1)
         sys.stdout.flush()
@@ -94,6 +101,7 @@ class no_logging:
     def __exit__(self, exc_type, exc_val, exc_tb):
         import os
         # disable output redirection
+        self.temp_dir.cleanup()
         os.close(1)
         os.dup(self.old)
         os.close(self.old)
@@ -124,3 +132,81 @@ def set_pivot(value):
         bpy.context.scene.tool_settings.transform_pivot_point = value
     else:
         bpy.context.space_data.pivot_point = value
+
+
+def scene_raycast(origin, direction):
+    return bpy.context.scene.ray_cast(
+        origin=origin,
+        direction=direction,
+        depsgraph=bpy.context.view_layer.depsgraph)
+
+
+def save_image(path, img):
+    import cv2
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(path), img)
+
+
+def read_image(path):
+    import cv2
+    if not Path(path).is_file():
+        raise FileNotFoundError(path)
+    return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+
+
+def _copy_atttributes_generic(attributes, source, target):
+    """ Only copies attributes that are copyable (not read-only)"""
+    for attr in attributes:
+        if hasattr(target, attr):
+            try:
+                setattr(target, attr, getattr(source, attr))
+            except AttributeError:
+                pass
+
+
+def copy_nodes(src_nodes, group):
+    """ Copy given nodes into a given node group """
+    # TODO: refactor
+    input_attributes = ("default_value", "name")
+    output_attributes = ("default_value", "name")
+
+    for src_node in src_nodes:
+        target_node = group.nodes.new(src_node.bl_idname)
+        attributes = []
+        for attr in src_node.bl_rna.properties:
+            if not attr.identifier.split("_")[0] == "bl":
+                attributes.append(attr.identifier)
+        _copy_atttributes_generic(attributes, src_node, target_node)
+
+        for i, inp in enumerate(src_node.inputs):
+            _copy_atttributes_generic(input_attributes, inp, target_node.inputs[i])
+
+        for i, out in enumerate(src_node.outputs):
+            _copy_atttributes_generic(output_attributes, out, target_node.outputs[i])
+
+
+def mirror_links(nodes, group):
+    """ Setup links in group as it is in given nodes list.
+    Use node names to find corresponding ones. """
+    for node in nodes:
+        group_node = group.nodes[node.name]
+        for i, inp in enumerate(node.inputs):
+            for link in inp.links:
+                if link.from_node.name not in group.nodes:
+                    continue
+                corresponding_node = group.nodes[link.from_node.name]
+                group.links.new(corresponding_node.outputs[link.from_socket.name], group_node.inputs[i])
+
+
+def create_node_group(nodes, name='NodeGroup'):
+    """ Create new node group by copying given nodes """
+    group = bpy.data.node_groups.new(name=name, type="ShaderNodeTree")
+    copy_nodes(nodes, group)
+    mirror_links(nodes, group)
+    return group
+
+
+def make_blender_image(img, img_save_path):
+    Path(img_save_path).parent.mkdir(exist_ok=True, parents=True)
+    save_image(img_save_path, img)
+    return bpy.data.images.load(str(img_save_path))

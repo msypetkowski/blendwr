@@ -1,10 +1,9 @@
-import math
-from pathlib import Path
-
 import bpy
-import cv2
+import math
 import mathutils
 import numpy as np
+import random
+from pathlib import Path
 
 from . import edit as blwr_edit
 from . import other as blwr_oth
@@ -47,7 +46,10 @@ def select_source_target(*objs):
 
 
 @multi_object
-def select(obj):
+def select(obj, recursive=False):
+    if recursive:
+        for child in get_child_objects(obj):
+            select(child, True)
     select_set(obj, True)
 
 
@@ -62,12 +64,20 @@ def focus(obj, update=False):
 
 
 @multi_object
-def remove(obj):
+def remove(obj, recursive=False):
+    if recursive:
+        for child in get_child_objects(obj):
+            remove(child, True)
     bpy.data.objects.remove(obj, do_unlink=True)
 
 
-def get_child_objects(obj):
-    return [o for o in bpy.data.objects if o.parent == obj]
+@multi_object
+def get_child_objects(obj, recursive=False):
+    children = [o for o in bpy.data.objects if o.parent == obj]
+    if recursive:
+        for child in children:
+            children.extend(get_child_objects(child, recursive=True))
+    return children
 
 
 @multi_object
@@ -133,7 +143,9 @@ def get_active():
         return bpy.context.scene.objects.active
 
 
-def create_empty_mesh(name='EmptyMeshObject'):
+def create_empty_mesh(name=None):
+    if name is None:
+        name = f'UnnamedMesh_{random.randint(0, 2 ** 31)}'
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata([[]], [], [])
     obj = bpy.data.objects.new(name, mesh)
@@ -143,6 +155,21 @@ def create_empty_mesh(name='EmptyMeshObject'):
     with blwr_edit.EditMesh(obj) as editor:
         editor.select_all()
         editor.remove_selected()  # TODO: why sometimes there is anything at all
+    return obj
+
+
+def create_empty_curve(name=None):
+    if name is None:
+        name = f'UnnamedCurve_{random.randint(0, 2 ** 31)}'
+    curve = bpy.data.curves.new(name, type='CURVE')
+    obj = bpy.data.objects.new(name, curve)
+    obj.data.dimensions = '3D'
+    add_to_scene(obj)
+    blwr_oth.scene_update()
+    focus(obj)
+    # with blwr_edit.EditMesh(obj) as editor:
+    #     editor.select_all()
+    #     editor.remove_selected()  # TODO: why sometimes there is anything at all
     return obj
 
 
@@ -169,17 +196,31 @@ def add_to_scene(obj):
 
 
 @multi_object
-def duplicate(obj, reference=False, name='Object'):
-    """ Returns newly created object
+def duplicate(obj, reference=False, name='Object', recursive=False):
+    """ Returns newly created object.
+    When recursive is set to True, Also recursively duplicates child objects and mirrors the hierarchy.
     """
-    if reference:
-        new_obj = bpy.data.objects.new(name, obj.data)
-        new_obj.matrix_world = obj.matrix_world
+    if not recursive:
+        if reference:
+            new_obj = bpy.data.objects.new(name, obj.data)
+            new_obj.matrix_world = obj.matrix_world
+        else:
+            new_obj = obj.copy()
+            new_obj.data = obj.data.copy()
+            new_obj.name = name
+        add_to_scene(new_obj)
     else:
-        new_obj = obj.copy()
-        new_obj.data = obj.data.copy()
-        new_obj.name = name
-    add_to_scene(new_obj)
+        # this would be an elegant way, but it is slow:
+        # for child in get_child_objects(obj):
+        #     reparent(duplicate(child, reference, child.name, True), new_obj)
+        deselect_all()
+        select(obj, recursive=True)
+        set_active(obj)
+        if reference:
+            bpy.ops.object.duplicate_move_linked()
+        else:
+            bpy.ops.object.duplicate_move()
+        new_obj = get_active()
     return new_obj
 
 
@@ -188,6 +229,17 @@ def apply_transform(obj):
     focus(obj)
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     return obj
+
+
+@multi_object
+def clear_transform(obj, location=True, rotation=True, scale=True):
+    focus(obj)
+    if location:
+        bpy.ops.object.location_clear(clear_delta=False)
+    if scale:
+        bpy.ops.object.scale_clear(clear_delta=False)
+    if rotation:
+        bpy.ops.object.rotation_clear(clear_delta=False)
 
 
 @multi_object
@@ -234,14 +286,14 @@ def break_to_components(obj):
 @multi_object
 def boolean(obj, other_obj, operation='DIFFERENCE', break_obj=False, **kwargs):
     """
+    When break_obj is True, returns joined object, otherwise the modifier.
     :param break_obj: apply boolean separately to each connected component of obj.
     """
     if not break_obj:
-        use_modifier(obj, 'BOOLEAN',
-                     operation=operation,
-                     object=other_obj,
-                     **kwargs)
-        return obj
+        return use_modifier(obj, 'BOOLEAN',
+                            operation=operation,
+                            object=other_obj,
+                            **kwargs)
 
     result = []
     for obj in break_to_components(obj):
@@ -304,24 +356,19 @@ def bounding_box_center(obj):
     return np.mean(bbox, axis=1)
 
 
-def get_image_as_plane_obj(img, path):
+def get_image_as_plane_obj(img, img_save_path):
     """
-    :type path: Path
     :type img: np.ndarray
+    :type img_save_path: Path
     :return: object with material using image texture
     """
-    Path(path).parent.mkdir(exist_ok=True, parents=True)
-    if len(img.shape) == 3:
-        cv2.imwrite(str(path), img[..., ::-1])
-    else:
-        cv2.imwrite(str(path), img)
-    img = bpy.data.images.load(str(path))
+    img = blwr_oth.make_blender_image(img, img_save_path)
     bpy.ops.mesh.primitive_plane_add(size=1)
     plane_obj = get_single_selected()
     focus(plane_obj)
     bpy.ops.object.material_slot_add()
 
-    material = bpy.data.materials.new(str(path))
+    material = bpy.data.materials.new(str(img_save_path))
     plane_obj.data.materials[0] = material
     material.use_nodes = True
     tree = material.node_tree
@@ -334,16 +381,73 @@ def get_image_as_plane_obj(img, path):
     return plane_obj
 
 
+def image_to_vertex_color(obj, img, vc_name, img_save_path):
+    """ Transfer image information to vertex color using active UV channel
+    :type obj: bpy_types.Object
+    :type img: np.ndarray
+    :type vc_name: str
+    :type img_save_path: Path
+    """
+    img = blwr_oth.make_blender_image(img, img_save_path)
+    texture = bpy.data.textures.new(vc_name, type='IMAGE')
+    texture.image = img
+    modifier = use_modifier(obj, 'DYNAMIC_PAINT', apply=False)
+    focus(obj)
+    bpy.ops.dpaint.type_toggle(type='CANVAS')
+    modifier.canvas_settings.canvas_surfaces["Surface"].init_color_type = 'TEXTURE'
+    modifier.canvas_settings.canvas_surfaces["Surface"].init_texture = texture
+    if vc_name not in obj.data.vertex_colors:
+        obj.data.vertex_colors.new(name=vc_name)
+    modifier.canvas_settings.canvas_surfaces["Surface"].output_name_a = vc_name
+    apply_modifier(obj, modifier)
+
+
+def vcolor_to_vgroup(obj, vc_name, remove_vc=False):
+    """ Convert vertex color to vgroup (with the same name).
+    Use mean RGB color over all loops as output weight.
+    """
+    vcolor = obj.data.vertex_colors[vc_name]
+    if vc_name in obj.vertex_groups:
+        vgroup = obj.vertex_groups[vc_name]
+    else:
+        vgroup = obj.vertex_groups.new(name=vc_name)
+    vgroup.remove(list(range(len(obj.data.vertices))))
+
+    # there are multiple loops per single vertex
+    values_per_vertex = [[] for i in range(len(obj.data.vertices))]
+
+    for poly in obj.data.polygons:
+        for vert_index, loop in zip(poly.vertices, poly.loop_indices):
+            values_per_vertex[vert_index].append(np.mean(vcolor.data[loop].color[:3]))
+
+    filtered_values = []
+    for vertex_idx, values in enumerate(values_per_vertex):
+        value = np.mean(values)
+        if value <= 0:
+            continue
+        filtered_values.append((vertex_idx, value))
+
+    for vertex_idx, value in filtered_values:
+        vgroup.add([vertex_idx], value, 'REPLACE')
+
+    if remove_vc:
+        obj.data.vertex_colors.remove(vcolor)
+
+
 @multi_object
-def hide(obj, hide=True):
-    obj.hide_set(hide)
+def hide(obj, hide=True, hide_render=False, recursive=False):
+    objs = [obj]
+    if recursive:
+        objs.extend(get_child_objects(obj, recursive=True))
+    for obj in objs:
+        obj.hide_set(hide)
+        obj.hide_render = hide_render
 
 
 @multi_object
 def subdivide(obj, times=1, **kwargs):
     if not times:
         return
-    kwargs = dict()
     if blwr_oth.check_blender_version_ge('2.80'):
         kwargs['uv_smooth'] = "NONE"
     else:
@@ -377,12 +481,17 @@ def flip_normals(obj):
 
 @multi_object
 def solidify(obj, thickness, offset=0.0, use_rim_only=False, vgroup_name='', **kwargs):
-    use_modifier(obj, 'SOLIDIFY',
-                 thickness=thickness,
-                 offset=offset,
-                 use_rim_only=use_rim_only,
-                 vertex_group=vgroup_name,
-                 **kwargs)
+    return use_modifier(obj, 'SOLIDIFY',
+                        thickness=thickness,
+                        offset=offset,
+                        use_rim_only=use_rim_only,
+                        vertex_group=vgroup_name,
+                        **kwargs)
+
+
+@multi_object
+def smooth(obj, factor=0.5, repeat=1, **kwargs):
+    return use_modifier(obj, 'SMOOTH', factor=factor, iterations=repeat, **kwargs)
 
 
 @multi_object
@@ -399,25 +508,11 @@ def shade_flat(obj):
 
 @multi_object
 def set_origin(obj, loc):
+    focus(obj)
     old_loc = blwr_oth.get_cursor_location()
     blwr_oth.set_cursor_location(loc)
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
     blwr_oth.set_cursor_location(old_loc)
-
-
-def place_in_grid(objs, margin=1, nrows=5):
-    offset_x = 0
-    offset_y = 0
-    max_dim1 = 0
-    for i, o in enumerate(objs):
-        max_dim1 = max(max_dim1, o.dimensions[1])
-        o.location[0] += offset_x
-        o.location[1] += offset_y
-        offset_x += round(o.dimensions[0] + margin)
-        if (i + 1) % nrows == 0:
-            offset_y += round(max_dim1 + margin)
-            offset_x = 0
-            max_dim1 = 0
 
 
 @multi_object
@@ -432,35 +527,80 @@ def reparent(obj, new_parent=None, keep_transform=True):
 
 @multi_object
 def edge_split(obj, split_angle=math.pi / 6, **kwargs):
-    use_modifier(obj, 'EDGE_SPLIT', split_angle=split_angle, **kwargs)
+    return use_modifier(obj, 'EDGE_SPLIT', split_angle=split_angle, **kwargs)
 
 
 @multi_object
 def array(obj, count, offset, **kwargs):
-    use_modifier(obj, 'ARRAY',
-                 count=count,
-                 constant_offset_displace=offset,
-                 use_constant_offset=True,
-                 use_relative_offset=False,
-                 **kwargs)
+    return use_modifier(obj, 'ARRAY',
+                        count=count,
+                        constant_offset_displace=offset,
+                        use_constant_offset=True,
+                        use_relative_offset=False,
+                        **kwargs)
 
 
 @multi_object
-def assign_material(obj, material):
-    focus(obj)
-    if not len(obj.material_slots):
-        bpy.ops.object.material_slot_add()
-    obj.material_slots[0].material = material
+def displace(obj, image, strength=0.1, mid_level=0.0, vector=False, vertex_group=None, **kwargs):
+    tex = bpy.data.textures.new(image.name + 'Tex', 'IMAGE')
+    tex.image = image
+    kwargs['texture'] = tex
+    kwargs['mid_level'] = mid_level
+    kwargs['texture_coords'] = 'UV'
+    kwargs['strength'] = strength
+    if vertex_group is not None:
+        kwargs['vertex_group'] = vertex_group
+    if vector:
+        kwargs['direction'] = 'RGB_TO_XYZ'
+        kwargs['space'] = 'GLOBAL'
+    use_modifier(obj, 'DISPLACE', **kwargs)
+
+
+@multi_object
+def decimate_planar(obj, angle_limit):
+    use_modifier(obj, 'DECIMATE', decimate_type='DISSOLVE', angle_limit=angle_limit)
+
+
+@multi_object
+def decimate_collapse(obj, ratio):
+    use_modifier(obj, 'DECIMATE', decimate_type='COLLAPSE', ratio=ratio)
+
+
+@multi_object
+def assign_material(obj, material, recursive=False):
+    objects = [obj]
+    if recursive:
+        objects.extend(get_child_objects(obj, recursive=True))
+    for obj in objects:
+        focus(obj)
+        if not len(obj.material_slots):
+            bpy.ops.object.material_slot_add()
+        obj.material_slots[0].material = material
 
 
 def make_joined_duplicate(objs):
     duplicates = [duplicate(o) for o in objs]
-    return join(*duplicates)
+    ret = join(*duplicates)
+    reparent(ret, None)
+    return ret
 
 
 @multi_object
 def remove_material_slot(obj, idx):
     focus(obj)
-    for x in bpy.context.object.material_slots:
-        bpy.context.object.active_material_index = idx
-        bpy.ops.object.material_slot_remove()
+    bpy.context.object.active_material_index = idx
+    bpy.ops.object.material_slot_remove()
+
+
+@multi_object
+def convert_to_mesh(obj):
+    focus(obj)
+    bpy.ops.object.convert(target='MESH')
+    return get_single_selected()
+
+
+@multi_object
+def convert_to_curve(obj):
+    focus(obj)
+    bpy.ops.object.convert(target='CURVE')
+    return get_single_selected()
