@@ -63,7 +63,7 @@ Simple Code Examples (<20 lines of code)
 
 [scatter_cubes.py](examples/scatter_cubes.py) | [simple_terrain.py](examples/simple_terrain.py) | [displace_with_image.py](examples/displace_with_image.py)
 :---:|:------:|:--------:
-![](images/scatter_cubes.jpg){width=25%}   |  ![](images/simple_terrain.jpg){width=40%} | ![drawing](images/displace_with_image.jpg){width=35%}
+![](images/scatter_cubes.jpg)   |  ![](images/simple_terrain.jpg) | ![drawing](images/displace_with_image.jpg)
 
 More Complex Code Examples (<300 lines of code)
 ---------------------
@@ -75,7 +75,7 @@ my [Complex Environment Generator](https://www.artstation.com/artwork/Ye1r5X):
 
 [examples/grass.py](examples/grass.py)
 
-![](images/grass.jpg){width=100%}
+![](images/grass.jpg)
 
 ### Render-ready terrain with grass scatter (~200 + ~100 (grass) lines of code):
 
@@ -83,7 +83,7 @@ This algorithm generates a render-ready scene:
 
 [examples/terrain_scatter.py](examples/terrain_scatter.py)
 
-![](images/terrain_scatter.jpg){width=100%}
+![](images/terrain_scatter.jpg)
 
 
 License note
