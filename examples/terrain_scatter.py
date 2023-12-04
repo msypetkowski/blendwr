@@ -139,7 +139,7 @@ def setup_scene_and_camera(terrain):
     return camera
 
 
-def setup_lighting(seed, camera):
+def setup_lighting(seed, camera, strength=0.3):
     rand = random.Random(seed)
     bpy.context.scene.render.film_transparent = False
 
@@ -151,7 +151,7 @@ def setup_lighting(seed, camera):
     bg_node = tree.nodes['Background']
     tree.links.new(sky_node.outputs[0], bg_node.inputs[0])
 
-    bg_node.inputs['Strength'].default_value = 0.3
+    bg_node.inputs['Strength'].default_value = strength
 
     sky_node.sun_elevation = (15 / 360) * 2 * math.pi * rand.uniform(0.7, 2.1)
     sky_node.sun_rotation = -camera.rotation_euler[2] + math.pi * rand.choice([

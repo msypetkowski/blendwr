@@ -210,3 +210,26 @@ def make_blender_image(img, img_save_path):
     Path(img_save_path).parent.mkdir(exist_ok=True, parents=True)
     save_image(img_save_path, img)
     return bpy.data.images.load(str(img_save_path))
+
+
+def render_to_numpy(disable_logging=True):
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        ff = bpy.context.scene.render.image_settings.file_format
+        if ff == 'OPEN_EXR':
+            extension = '.exr'
+        elif ff == 'JPEG':
+            extension = '.jpg'
+        elif ff == 'PNG':
+            extension = '.png'
+        else:
+            raise NotImplementedError(f'Unsupported file format {ff}')
+        path = tmpdirname + f'/render{extension}'
+        bpy.data.scenes["Scene"].render.filepath = path
+        scene_update()
+        if disable_logging:
+            with no_logging():
+                bpy.ops.render.render(write_still=True)
+        else:
+            bpy.ops.render.render(write_still=True)
+        return read_image(path)
