@@ -1,9 +1,10 @@
-import bpy
-import mathutils
 import time
 from collections import defaultdict
 from functools import reduce
 from pathlib import Path
+
+import bpy
+import mathutils
 
 
 class TimerScope:
@@ -142,16 +143,29 @@ def scene_raycast(origin, direction):
 
 
 def save_image(path, img):
-    import cv2
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(path), img)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.suffix == '.exr':
+        import cv2
+        cv2.imwrite(str(path), img)
+    else:
+        from PIL import Image
+        img = Image.fromarray(img)
+        img.save(path)
 
 
 def read_image(path):
-    import cv2
-    if not Path(path).is_file():
+    path = Path(path)
+    if not path.is_file():
         raise FileNotFoundError(path)
-    return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if path.suffix == '.exr':
+        import cv2
+        return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    else:
+        from PIL import Image
+        import numpy as np
+        img = Image.open(path)
+        return np.array(img)
 
 
 def _copy_atttributes_generic(attributes, source, target):
