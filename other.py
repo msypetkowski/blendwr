@@ -150,7 +150,7 @@ def save_image(path, img):
         cv2.imwrite(str(path), img)
     else:
         from PIL import Image
-        if path.suffix == '.jpg':
+        if path.suffix == '.jpg' and len(img.shape) == 3:
             img = img[:, :, :3]
         img = Image.fromarray(img)
         img.save(path)
