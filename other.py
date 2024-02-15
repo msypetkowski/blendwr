@@ -143,13 +143,17 @@ def scene_raycast(origin, direction):
 
 
 def save_image(path, img):
+    import numpy as np
+    print(f'Saving image {img.shape}, {img.dtype} to: {path}')
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.suffix == '.exr':
         import cv2
-        cv2.imwrite(str(path), img)
+        assert img.dtype.kind == 'f'
+        cv2.imwrite(str(path), img.astype(np.float32))
     else:
         from PIL import Image
+        img = img.astype(np.uint8)
         if path.suffix == '.jpg' and len(img.shape) == 3:
             img = img[:, :, :3]
         img = Image.fromarray(img)
