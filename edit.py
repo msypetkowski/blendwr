@@ -360,7 +360,6 @@ class MeshEditor:
         return [g.name for g in bpy.context.object.vertex_groups]
 
     def select_vgroup(self, name, threshold=None, select=True):
-        obj = blwr_obj.get_single_selected()
         vgroups = bpy.context.object.vertex_groups
         vgrp = vgroups[name]
         vgroups.active_index = vgrp.index
@@ -371,16 +370,16 @@ class MeshEditor:
             else:
                 bpy.ops.object.vertex_group_deselect()
         else:
-            for poly in obj.data.polygons:
+            for poly in self.obj.data.polygons:
                 for loop in poly.loop_indices:
-                    vertindex = obj.data.loops[loop].vertex_index
+                    vertindex = self.obj.data.loops[loop].vertex_index
                     try:
                         weight = vgrp.weight(vertindex)
                     except RuntimeError:
                         # vertex not in any group
                         continue
                     if weight > threshold:
-                        obj.data.vertices[vertindex].select = select
+                        self.obj.data.vertices[vertindex].select = select
                         self.bm.verts[vertindex].select = select
         blwr_oth.scene_update()
 

@@ -169,6 +169,7 @@ def read_image(path):
         return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     else:
         from PIL import Image
+        Image.MAX_IMAGE_PIXELS = 1000000000
         import numpy as np
         img = Image.open(path)
         return np.array(img)
